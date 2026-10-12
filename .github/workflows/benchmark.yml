@@ -1,0 +1,70 @@
+name: speech.cpp CPU benchmark + Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/benchmark.yml'
+      - 'scripts/**'
+      - 'README.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: tmp-speech-pages
+  cancel-in-progress: false
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install verified speech.cpp release (Linux CPU)
+        shell: bash
+        run: |
+          set -euo pipefail
+          v=0.8.3
+          base="https://github.com/nyosegawa/speech.cpp/releases/download/v${v}"
+          curl -fL --retry 3 -o /tmp/speech.zip "${base}/speech-${v}-linux-x64-cpu.zip"
+          curl -fL --retry 3 -o /tmp/SHA256SUMS "${base}/SHA256SUMS"
+          (cd /tmp && grep "speech-${v}-linux-x64-cpu.zip" SHA256SUMS | sha256sum -c -)
+          mkdir -p "$RUNNER_TEMP/speech"
+          unzip -q /tmp/speech.zip -d "$RUNNER_TEMP/speech"
+          bin=$(find "$RUNNER_TEMP/speech" -type f -name speech -print -quit)
+          test -n "$bin"
+          chmod +x "$bin"
+          echo "$(dirname "$bin")" >> "$GITHUB_PATH"
+          "$bin" --version
+      - name: Run Irodori CPU benchmarks and generate site
+        env:
+          SPEECH_RELEASE: '0.8.3'
+          PYTHONUNBUFFERED: '1'
+        run: python3 scripts/benchmark.py
+      - name: Upload measurements and generated audio
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: speech-cpu-benchmark
+          path: |
+            public/results.json
+            public/audio/
+            public/logs/
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+      - name: Upload site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+      - name: Publish benchmark to Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
