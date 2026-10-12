@@ -1,0 +1,82 @@
+name: Irodori calculus lessons (hiragana TTS + Pages)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'calculus-lessons/**'
+      - '.github/workflows/calculus-lessons.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: tmp-speech-pages
+  cancel-in-progress: false
+
+jobs:
+  calculus:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    environment:
+      name: github-pages
+      url: ${{ steps.publish.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate math and hiragana scripts
+        run: |
+          python3 -m venv "$RUNNER_TEMP/math-verify"
+          "$RUNNER_TEMP/math-verify/bin/pip" install --quiet sympy==1.13.3
+          "$RUNNER_TEMP/math-verify/bin/python" calculus-lessons/check.py
+          python3 -m py_compile calculus-lessons/run.py calculus-lessons/render.py calculus-lessons/preserve_math.py
+      - name: Install pinned and hash-verified speech.cpp CPU
+        shell: bash
+        run: |
+          set -euo pipefail
+          asset='speech-0.8.3-linux-x64-cpu.zip'
+          curl -fsSL --retry 3 -o "/tmp/$asset" "https://github.com/nyosegawa/speech.cpp/releases/download/v0.8.3/$asset"
+          echo 'e3104efa65b23fb55b4971a2d5646071fb60c8c2d723690d48349983cb14f8a9  /tmp/speech-0.8.3-linux-x64-cpu.zip' | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/speech"
+          unzip -q "/tmp/$asset" -d "$RUNNER_TEMP/speech"
+          binary="$(find "$RUNNER_TEMP/speech" -type f -name speech -print -quit)"
+          test -n "$binary"
+          chmod +x "$binary"
+          echo "$(dirname "$binary")" >> "$GITHUB_PATH"
+          "$binary" --version
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends ffmpeg
+          fi
+      - name: Keep existing speech benchmark and math experiment pages
+        run: |
+          python3 scripts/preserve_pages.py
+          python3 calculus-lessons/preserve_math.py
+      - name: Keep existing WebGPU speech demo
+        run: bash scripts/build_webgpu_site.sh
+      - name: Generate all calculus narrations
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: python3 calculus-lessons/run.py
+      - name: Upload readings, compressed audio and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: irodori-calculus-lessons
+          path: |
+            calculus-lessons/data/
+            public/calculus/
+          if-no-files-found: warn
+          retention-days: 30
+      - uses: actions/configure-pages@v5
+        if: ${{ always() && hashFiles('public/calculus/index.html') != '' }}
+      - uses: actions/upload-pages-artifact@v3
+        if: ${{ always() && hashFiles('public/calculus/index.html') != '' }}
+        with:
+          path: public
+      - name: Publish full site
+        id: publish
+        if: ${{ always() && hashFiles('public/calculus/index.html') != '' }}
+        uses: actions/deploy-pages@v4
