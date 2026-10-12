@@ -17,7 +17,7 @@ permissions:
   pages: write
   id-token: write
 concurrency:
-  group: tmp-speech-pages
+  group: tmp-speech-webgpu-ui
   cancel-in-progress: false
 jobs:
   publish-webgpu:
