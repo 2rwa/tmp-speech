@@ -42,6 +42,10 @@ jobs:
           chmod +x "$binary"
           echo "$(dirname "$binary")" >> "$GITHUB_PATH"
           "$binary" --version
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends ffmpeg
+          fi
           ffmpeg -version | head -1
       - name: Download full book, synthesize and sample memory
         env:
@@ -56,14 +60,14 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
       - name: Configure GitHub Pages
-        if: always()
+        if: ${{ always() && hashFiles('public/index.html') != '' }}
         uses: actions/configure-pages@v5
       - name: Package website
-        if: always()
+        if: ${{ always() && hashFiles('public/index.html') != '' }}
         uses: actions/upload-pages-artifact@v3
         with:
           path: public
       - name: Publish website
         id: publish
-        if: always()
+        if: ${{ always() && hashFiles('public/index.html') != '' }}
         uses: actions/deploy-pages@v4
