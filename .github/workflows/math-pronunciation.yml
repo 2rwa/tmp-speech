@@ -1,0 +1,78 @@
+name: Irodori mathematical pronunciation A-B
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/math-pronunciation.yml'
+      - 'math-pronunciation/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: tmp-speech-pages
+  cancel-in-progress: false
+
+jobs:
+  math:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Static syntax and case checks
+        run: |
+          python3 -m py_compile math-pronunciation/run.py
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          cases=json.loads(Path('math-pronunciation/cases.json').read_text())
+          assert len(cases)==8
+          assert len({x['id'] for x in cases})==len(cases)
+          assert all(x['formula'] and x['spoken'] for x in cases)
+          PY
+      - name: Install verified speech.cpp CPU
+        shell: bash
+        run: |
+          set -euo pipefail
+          asset='speech-0.8.3-linux-x64-cpu.zip'
+          curl -fL --retry 3 -o "/tmp/$asset" "https://github.com/nyosegawa/speech.cpp/releases/download/v0.8.3/$asset"
+          echo 'e3104efa65b23fb55b4971a2d5646071fb60c8c2d723690d48349983cb14f8a9  /tmp/speech-0.8.3-linux-x64-cpu.zip' | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/speech"
+          unzip -q "/tmp/$asset" -d "$RUNNER_TEMP/speech"
+          binary="$(find "$RUNNER_TEMP/speech" -type f -name speech -print -quit)"
+          test -n "$binary"
+          chmod +x "$binary"
+          echo "$(dirname "$binary")" >> "$GITHUB_PATH"
+          "$binary" --version
+      - name: Restore existing Pages assets
+        run: python3 scripts/preserve_pages.py
+      - name: Assemble existing WebGPU UI
+        run: bash scripts/build_webgpu_site.sh
+      - name: Synthesize mathematical expressions
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: python3 math-pronunciation/run.py
+      - name: Archive math samples and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: irodori-math-pronunciation
+          path: public/math/
+          if-no-files-found: warn
+          retention-days: 30
+      - uses: actions/configure-pages@v5
+        if: ${{ always() && hashFiles('public/math/index.html') != '' }}
+      - uses: actions/upload-pages-artifact@v3
+        if: ${{ always() && hashFiles('public/math/index.html') != '' }}
+        with:
+          path: public
+      - name: Publish to Pages
+        id: deploy
+        if: ${{ always() && hashFiles('public/math/index.html') != '' }}
+        uses: actions/deploy-pages@v4
