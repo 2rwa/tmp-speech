@@ -1,0 +1,43 @@
+name: Irodori WebGPU UI smoke + Pages
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'test/irodori-webgpu/**'
+      - 'scripts/build_webgpu_site.sh'
+      - 'scripts/preserve_pages.py'
+      - 'scripts/check_webgpu_site.py'
+      - '.github/workflows/webgpu-pages.yml'
+  workflow_run:
+    workflows: ['speech.cpp CPU benchmark + Pages', 'Aozora Kumono Ito full-length CPU TTS + RSS']
+    types: [completed]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: tmp-speech-pages
+  cancel-in-progress: false
+jobs:
+  publish-webgpu:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: github-pages
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore previously published benchmark measurements
+        run: python3 scripts/preserve_pages.py
+      - name: Assemble upstream browser WebGPU implementation
+        run: bash scripts/build_webgpu_site.sh
+      - name: Static and JavaScript checks
+        run: |
+          python3 scripts/check_webgpu_site.py
+          node --check public/test/irodori-webgpu/app.mjs
+          node --check public/test/irodori-webgpu/runtime/pipeline.mjs
+          test -s public/test/irodori-webgpu/index.html
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+      - uses: actions/deploy-pages@v4
