@@ -1,0 +1,69 @@
+name: Aozora Kumono Ito full-length CPU TTS + RSS
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/long-benchmark.yml'
+      - 'bench-long/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: tmp-speech-pages
+  cancel-in-progress: false
+
+jobs:
+  long:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    environment:
+      name: github-pages
+      url: ${{ steps.publish.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Python syntax
+        run: python3 -m py_compile bench-long/main.py
+      - name: Install verified speech.cpp v0.8.3 CPU binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          asset='speech-0.8.3-linux-x64-cpu.zip'
+          curl -fsSL --retry 3 -o "/tmp/$asset" "https://github.com/nyosegawa/speech.cpp/releases/download/v0.8.3/$asset"
+          echo 'e3104efa65b23fb55b4971a2d5646071fb60c8c2d723690d48349983cb14f8a9  /tmp/speech-0.8.3-linux-x64-cpu.zip' | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/speech"
+          unzip -q "/tmp/$asset" -d "$RUNNER_TEMP/speech"
+          binary="$(find "$RUNNER_TEMP/speech" -type f -name speech -print -quit)"
+          test -n "$binary"
+          chmod +x "$binary"
+          echo "$(dirname "$binary")" >> "$GITHUB_PATH"
+          "$binary" --version
+          ffmpeg -version | head -1
+      - name: Download full book, synthesize and sample memory
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: python3 bench-long/main.py
+      - name: Archive long benchmark and compressed audio
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kumono-ito-long-benchmark
+          path: public/long/
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Configure GitHub Pages
+        if: always()
+        uses: actions/configure-pages@v5
+      - name: Package website
+        if: always()
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+      - name: Publish website
+        id: publish
+        if: always()
+        uses: actions/deploy-pages@v4
